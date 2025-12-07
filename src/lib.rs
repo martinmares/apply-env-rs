@@ -6,8 +6,9 @@ use std::path::Path;
 use colored::Colorize;
 use regex::Regex;
 
-/// Stejná verze jako v Crystal projektu
-pub const VERSION: &str = "1.3.0";
+/// Stejná verze jako v Cargo.toml
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 /// Konfigurace ekvivalentní OptionParseru v Crystal kódu.
 #[derive(Debug, Clone)]
@@ -302,8 +303,8 @@ where
 }
 
 pub fn print_version() {
-    println!("App name: apply-env");
-    println!("App version: {}", VERSION);
+    // "apply-env 1.3.0"
+    println!("{} {} (rust)", PKG_NAME, VERSION);
 }
 
 //
