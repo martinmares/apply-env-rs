@@ -222,91 +222,6 @@ fn rewrite_or_print(content: &str, cfg: &TemplateConfig) -> io::Result<()> {
 // ---------- CLI parsing (port OptionParseru) ----------
 //
 
-#[derive(Debug)]
-pub enum CliResult {
-    Run(TemplateConfig),
-    Help,
-    Version,
-    InvalidOption(String),
-}
-
-/// Ručně napsaný help, aby byl co nejvíc podobný výstupu OptionParseru v Crystal.
-pub const HELP_TEXT: &str = "\
-Usage: apply-env [arguments]
-  -f NAME, --file=NAME            Specifies template file name
-  -w, --rewrite                   Rewrite input file!
-  -m, --helm-only                 Make HEML template compatible!
-  -e, --escape                    Escape special string chars (need for JSON)
-  -n VALUE, --if-not-found=VALUE  Apply this 'if-not-found' value for 'env' that was not exists
-  -d, --debug                     Debug?
-  -v, --version                   App version
-  -h, --help                      Show this help
-";
-
-/// Port logiky OptionParseru - nepoužívám clap, aby chování bylo
-/// co nejvíc pod kontrolou.
-pub fn parse_args<I, S>(args: I) -> CliResult
-where
-    I: IntoIterator<Item = S>,
-    S: Into<String>,
-{
-    let mut cfg = TemplateConfig::default();
-    let mut iter = args.into_iter().map(|s| s.into());
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "-h" | "--help" => return CliResult::Help,
-            "-v" | "--version" => return CliResult::Version,
-            "-w" | "--rewrite" => {
-                cfg.rewrite = true;
-            }
-            "-m" | "--helm-only" => {
-                cfg.helm_only = true;
-            }
-            "-e" | "--escape" => {
-                cfg.escape = true;
-            }
-            "-d" | "--debug" => {
-                cfg.debug = true;
-            }
-            "-f" => {
-                if let Some(name) = iter.next() {
-                    cfg.file_name = Some(name);
-                } else {
-                    // v Crystal by to hodilo MissingOption/InvalidOption
-                    return CliResult::InvalidOption("-f".to_string());
-                }
-            }
-            s if s.starts_with("--file=") => {
-                let name = s.trim_start_matches("--file=").to_string();
-                cfg.file_name = Some(name);
-            }
-            "-n" => {
-                if let Some(val) = iter.next() {
-                    cfg.default = Some(val);
-                } else {
-                    return CliResult::InvalidOption("-n".to_string());
-                }
-            }
-            s if s.starts_with("--if-not-found=") => {
-                let val = s.trim_start_matches("--if-not-found=").to_string();
-                cfg.default = Some(val);
-            }
-            other => {
-                // invalid_option v Crystal
-                return CliResult::InvalidOption(other.to_string());
-            }
-        }
-    }
-
-    CliResult::Run(cfg)
-}
-
-pub fn print_version() {
-    // "apply-env 1.3.0"
-    println!("{} {} (rust)", PKG_NAME, VERSION);
-}
-
 //
 // ---------- Jednoduché unit testy pro core logiku (víc než v původním Crystal repu :) ) ----------
 //
@@ -367,42 +282,6 @@ mod tests {
 
         let rendered = render_template_str("{{FOO}}", &cfg);
         assert_eq!(rendered, "{{`{{FOO}}`}}");
-    }
-
-    #[test]
-    fn parse_args_basic_flags() {
-        let args = ["-w", "-m", "-e", "-d", "-f", "file.txt", "-n", "DEFAULT"];
-        match parse_args(args.iter().map(|s| s.to_string())) {
-            CliResult::Run(cfg) => {
-                assert!(cfg.rewrite);
-                assert!(cfg.helm_only);
-                assert!(cfg.escape);
-                assert!(cfg.debug);
-                assert_eq!(cfg.file_name.as_deref(), Some("file.txt"));
-                assert_eq!(cfg.default.as_deref(), Some("DEFAULT"));
-            }
-            _ => panic!("expected Run(...)"),
-        }
-    }
-
-    #[test]
-    fn parse_args_help_and_version() {
-        match parse_args(["-h"].iter().map(|s| s.to_string())) {
-            CliResult::Help => {}
-            _ => panic!("expected Help"),
-        }
-        match parse_args(["-v"].iter().map(|s| s.to_string())) {
-            CliResult::Version => {}
-            _ => panic!("expected Version"),
-        }
-    }
-
-    #[test]
-    fn parse_args_invalid_option() {
-        match parse_args(["--no-such-flag"].iter().map(|s| s.to_string())) {
-            CliResult::InvalidOption(flag) => assert_eq!(flag, "--no-such-flag"),
-            _ => panic!("expected InvalidOption"),
-        }
     }
 
     #[test]
