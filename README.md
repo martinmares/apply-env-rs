@@ -14,7 +14,7 @@ It’s intentionally small and predictable – essentially “just” replaces `
   - Turns `{{FOO}}` into `{{`{{FOO}}`}}`
   - Does **not** double-wrap already wrapped expressions
 - Default value for missing env variables (`-n / --if-not-found=VALUE`)
-- Reads from **stdin** (explicitly via `--`) or from a **file** (`-f / --file`)
+- Reads from **stdin** (via `-` or `-f -`) or from a **file** (`-f / --file`)
 - Optional in-place file rewrite (`-w / --rewrite`)
 - Optional `.env` / properties-style file as the **only** source of variables (`-E / --env-file`)
 - Debug output to see what’s being replaced (`-d / --debug`)
@@ -81,10 +81,12 @@ Supported options:
 - If `-f/--file` **is** specified:
   - Without `-w`: reads from the file, writes processed content to stdout.
   - With `-w`: reads from the file and rewrites the file in-place.
-- If you want to read from **stdin**, you must explicitly use `--`:
+- If you want to read from **stdin**, you can use either `-` (alias for `-f -`) or explicit `-f -`:
 
   ```bash
-  echo 'Hello {{FOO}}' | FOO=world apply-env --
+  echo 'Hello {{FOO}}' | FOO=world apply-env -
+  # or explicitly
+  echo 'Hello {{FOO}}' | FOO=world apply-env -f -
   ```
 
 If a file path is given but the file does not exist, it is treated as empty.
@@ -154,7 +156,7 @@ There are two mutually exclusive ways to provide values:
 ### 1. Simple substitution from stdin (process ENV)
 
 ```bash
-echo 'Hello {{FOO}}' | FOO=world ./target/release/apply-env --
+echo 'Hello {{FOO}}' | FOO=world ./target/release/apply-env -
 ```
 
 Output:
@@ -220,7 +222,7 @@ This will overwrite `template.yaml` with the processed content.
 ### 5. Reading from stdin with env-file
 
 ```bash
-echo 'Hello {{FOO}}' | ./target/release/apply-env -E .env --
+echo 'Hello {{FOO}}' | ./target/release/apply-env -E .env -
 ```
 
 ---
@@ -305,7 +307,7 @@ Usage:
 or (from stdin):
 
 ```bash
-echo '{{FOO}}' | ./target/release/apply-env -m --
+echo '{{FOO}}' | ./target/release/apply-env -m -
 ```
 
 ---
