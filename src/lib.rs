@@ -21,7 +21,7 @@ pub struct TemplateConfig {
     pub escape: bool,
     pub default: Option<String>,
     pub debug: bool,
-    /// Volitelná mapa proměnných prostředí – pokud je Some,
+    /// Volitelná mapa proměnných prostředí - pokud je Some,
     /// používá se místo skutečného process ENV.
     pub env_vars: Option<HashMap<String, String>>,
 }
@@ -187,16 +187,19 @@ pub fn run_from_stdio(cfg: TemplateConfig) -> io::Result<()> {
 }
 
 fn load_content(cfg: &TemplateConfig) -> io::Result<String> {
-    // Crystal default: čte ze STDIN, dokud není -f/--file
     if let Some(ref file_name) = cfg.file_name {
-        if Path::new(file_name).exists() {
+        if file_name == "-" {
+            // Unix idiom: "-" znamená STDIN
+            let mut buf = String::new();
+            io::stdin().read_to_string(&mut buf)?;
+            Ok(buf)
+        } else if Path::new(file_name).exists() {
             std::fs::read_to_string(file_name)
         } else {
-            // Crystal: File.read jen když File.exists?
-            // jinak @content zůstane nil -> "".
             Ok(String::new())
         }
     } else {
+        // knihovní použití -> stdin
         let mut buf = String::new();
         io::stdin().read_to_string(&mut buf)?;
         Ok(buf)

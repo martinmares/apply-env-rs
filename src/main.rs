@@ -45,10 +45,50 @@ struct Cli {
     env_file: Option<String>,
 }
 
+fn normalize_args(raw_args: Vec<String>) -> Vec<String> {
+    // Bez argumentů nic neupravujeme (řeší se v main)
+    if raw_args.len() <= 1 {
+        return raw_args;
+    }
+
+    // Když uživatel explicitně použil -f / --file, nic nepřemapováváme.
+    let has_file_flag = raw_args
+        .iter()
+        .skip(1)
+        .any(|arg| arg == "-f" || arg == "--file" || arg.starts_with("--file="));
+
+    if has_file_flag {
+        return raw_args;
+    }
+
+    // Když není -f/--file a poslední argument je "-", interpretujeme to
+    // jako alias pro "-f -".
+    if let Some(last) = raw_args.last() {
+        if last == "-" {
+            let last_index = raw_args.len() - 1;
+            let mut v = Vec::with_capacity(raw_args.len() + 1);
+            for (i, arg) in raw_args.into_iter().enumerate() {
+                if i == last_index {
+                    // před původní "-" vložíme "-f"
+                    v.push("-f".to_string());
+                    v.push(arg);
+                } else {
+                    v.push(arg);
+                }
+            }
+            v
+        } else {
+            raw_args
+        }
+    } else {
+        raw_args
+    }
+}
+
 fn main() {
     let raw_args: Vec<String> = env::args().collect();
 
-    // 1) Bez argumentů -> vytiskni help (stejné jako -h)
+    // 1) Bez argumentů -> vytiskni help (stejné jako -h), exit 0
     if raw_args.len() == 1 {
         let mut cmd = Cli::command();
         cmd.print_help().expect("Failed to print help");
@@ -56,35 +96,21 @@ fn main() {
         return;
     }
 
-    // 2) Zjistíme, jestli uživatel explicitně chce číst ze stdin přes `--`
-    let stdin_mode = raw_args.iter().skip(1).any(|a| a == "--");
+    // 2) Přemapujeme alias "apply-env -" na "apply-env -f -"
+    let args_for_clap = normalize_args(raw_args);
 
-    // 3) Odstraníme `--` z argumentů, než je předáme clap-u
-    let filtered_args: Vec<String> = raw_args
-        .iter()
-        .enumerate()
-        .filter_map(|(i, s)| {
-            if i > 0 && s == "--" {
-                None
-            } else {
-                Some(s.clone())
-            }
-        })
-        .collect();
+    // 3) Necháme clap zparsovat argumenty (včetně -h / -v)
+    let cli = Cli::parse_from(args_for_clap);
 
-    // 4) Necháme clap zparsovat zbylé argumenty (včetně -h / -v)
-    let cli = Cli::parse_from(filtered_args);
-
-    // 5) Musí být buď soubor (-f), nebo explicitní stdin (`--`)
-    if cli.file.is_none() && !stdin_mode {
+    // 4) Musí být nějaký zdroj vstupu, tj. -f NAME nebo alias "-"
+    if cli.file.is_none() {
         let mut cmd = Cli::command();
         cmd.print_help().expect("Failed to print help");
         println!();
-        // neplatné použití -> vrátíme nenulový exit code
         process::exit(1);
     }
 
-    // 6) Pokud je zadán env-file, načteme proměnné z něj
+    // 5) env-file (pokud je)
     let env_vars = match cli.env_file {
         Some(path) => match load_env_file(&path) {
             Ok(map) => Some(map),
@@ -96,7 +122,7 @@ fn main() {
         None => None,
     };
 
-    // 7) Sestavíme TemplateConfig pro core logiku
+    // 6) Config pro core logiku
     let cfg = TemplateConfig {
         file_name: cli.file,
         rewrite: cli.rewrite,
@@ -107,8 +133,7 @@ fn main() {
         env_vars,
     };
 
-    // 8) Spustíme templating (čtení buď ze souboru nebo ze stdin
-    //    podle toho, zda cfg.file_name je Some / None)
+    // 7) Templating (stdin / soubor podle file_name)
     if let Err(err) = run_from_stdio(cfg) {
         eprintln!("ERROR: {err}");
         process::exit(1);
@@ -164,4 +189,51 @@ fn load_env_file(path: &str) -> std::io::Result<HashMap<String, String>> {
     }
 
     Ok(map)
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn dash_alias_maps_to_file_dash() {
+        // Simuluje: apply-env -
+        let raw_args = vec!["apply-env".to_string(), "-".to_string()];
+
+        let normalized = normalize_args(raw_args);
+        assert_eq!(normalized, vec!["apply-env", "-f", "-"]);
+
+        let cli = Cli::parse_from(normalized);
+        assert_eq!(cli.file.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn explicit_file_dash_is_preserved() {
+        // Simuluje: apply-env -f -
+        let args = vec!["apply-env".to_string(), "-f".to_string(), "-".to_string()];
+
+        let normalized = normalize_args(args.clone());
+        // tady by se nic přemapovat nemělo
+        assert_eq!(normalized, args);
+
+        let cli = Cli::parse_from(normalized);
+        assert_eq!(cli.file.as_deref(), Some("-"));
+    }
+
+    #[test]
+    fn file_argument_is_propagated_normally() {
+        // Simuluje: apply-env -f template.yaml
+        let args = vec![
+            "apply-env".to_string(),
+            "-f".to_string(),
+            "template.yaml".to_string(),
+        ];
+
+        let normalized = normalize_args(args.clone());
+        assert_eq!(normalized, args);
+
+        let cli = Cli::parse_from(normalized);
+        assert_eq!(cli.file.as_deref(), Some("template.yaml"));
+    }
 }
