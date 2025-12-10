@@ -8,14 +8,15 @@ It’s intentionally small and predictable – essentially “just” replaces `
 
 ## Features
 
-- Replace `{{VAR_NAME}}` with values from the environment (`$VAR_NAME`)
+- Replace `{{VAR_NAME}}` with values from the environment
 - Optional JSON-style escaping for values (`-e / --escape`)
 - Helm-compatible wrapping mode (`-m / --helm-only`)
   - Turns `{{FOO}}` into `{{`{{FOO}}`}}`
   - Does **not** double-wrap already wrapped expressions
 - Default value for missing env variables (`-n / --if-not-found=VALUE`)
-- Reads from **stdin** or from a **file** (`-f / --file`)
+- Reads from **stdin** (explicitly via `--`) or from a **file** (`-f / --file`)
 - Optional in-place file rewrite (`-w / --rewrite`)
+- Optional `.env` / properties-style file as the **only** source of variables (`-E / --env-file`)
 - Debug output to see what’s being replaced (`-d / --debug`)
 - No errors for missing template variables by default – placeholders are left as-is (unless a default is provided)
 
@@ -68,16 +69,23 @@ Supported options:
 -e, --escape                    Escape special string chars (needed for JSON)
 -n VALUE, --if-not-found=VALUE  Use this value if env var was not found
 -d, --debug                     Debug mode (verbose output)
+-E FILE, --env-file=FILE        Load variables from a .env-style file instead of process ENV
 -v, --version                   Show version
 -h, --help                      Show this help
 ```
 
 ### Input / output
 
-- If `-f/--file` is **not** specified, `apply-env` reads from **stdin** and writes to **stdout**.
+- **No arguments** (`apply-env`):
+  - Prints the help text (same as `-h`) and exits.
 - If `-f/--file` **is** specified:
   - Without `-w`: reads from the file, writes processed content to stdout.
   - With `-w`: reads from the file and rewrites the file in-place.
+- If you want to read from **stdin**, you must explicitly use `--`:
+
+  ```bash
+  echo 'Hello {{FOO}}' | FOO=world apply-env --
+  ```
 
 If a file path is given but the file does not exist, it is treated as empty.
 
@@ -98,8 +106,8 @@ Where `VAR_NAME` matches `\w+` (letters, digits, underscore).
 For each match:
 
 - In **normal mode**:
-  - If `$VAR_NAME` is set, it is substituted (optionally escaped if `-e` is on).
-  - If `$VAR_NAME` is **not** set:
+  - If the variable is present in the active environment (see “Variable sources” below), it is substituted (optionally escaped if `-e` is on).
+  - If the variable is **not** found:
     - If `-n / --if-not-found=VALUE` is provided, `VALUE` is substituted.
     - Otherwise, the placeholder is left as-is.
 
@@ -107,12 +115,46 @@ For each match:
 
 ---
 
+## Variable sources
+
+There are two mutually exclusive ways to provide values:
+
+1. **Process environment (default)**  
+   This is the usual `$FOO=bar apply-env ...` behavior.
+
+2. **`.env` / properties file** via `-E / --env-file`  
+   When `--env-file` is used, values are taken **only** from that file, and the process environment is ignored.
+
+   The file format is intentionally simple:
+
+   - blank lines are ignored,
+   - lines starting with `#` are comments,
+   - optional `export ` prefix is allowed (and ignored),
+   - `KEY=VALUE` pairs,
+   - `VALUE` may be wrapped in single or double quotes.
+
+   Example `.env`:
+
+   ```env
+   # comment
+   FOO=hello
+   export BAR="world"
+   ```
+
+   Example usage:
+
+   ```bash
+   apply-env -E .env -f template.yaml
+   ```
+
+---
+
 ## Examples
 
-### 1. Simple substitution from stdin
+### 1. Simple substitution from stdin (process ENV)
 
 ```bash
-echo 'Hello {{FOO}}' | FOO=world ./target/release/apply-env
+echo 'Hello {{FOO}}' | FOO=world ./target/release/apply-env --
 ```
 
 Output:
@@ -121,7 +163,7 @@ Output:
 Hello world
 ```
 
-### 2. Using a template file
+### 2. Using a template file (process ENV)
 
 `template.yaml`:
 
@@ -141,7 +183,33 @@ Output:
 hello: "hello -> hello -> hello"
 ```
 
-### 3. In-place rewrite
+### 3. Using an env-file instead of process ENV
+
+`.env`:
+
+```env
+FOO=from_file
+```
+
+`template.yaml`:
+
+```yaml
+hello: "{{FOO}}"
+```
+
+Run:
+
+```bash
+./target/release/apply-env -E .env -f template.yaml
+```
+
+Output:
+
+```yaml
+hello: "from_file"
+```
+
+### 4. In-place rewrite
 
 ```bash
 FOO=world ./target/release/apply-env -f template.yaml -w
@@ -149,13 +217,19 @@ FOO=world ./target/release/apply-env -f template.yaml -w
 
 This will overwrite `template.yaml` with the processed content.
 
+### 5. Reading from stdin with env-file
+
+```bash
+echo 'Hello {{FOO}}' | ./target/release/apply-env -E .env --
+```
+
 ---
 
 ## JSON escaping mode
 
-When you know the output will be interpreted as JSON, it’s sometimes useful to escape special characters in env values.
+When you know the output will be interpreted as JSON, it’s sometimes useful to escape special characters in values.
 
-With `-e / --escape`, the following characters are escaped in env values:
+With `-e / --escape`, the following characters are escaped:
 
 - `\` → `\\`
 - `"` → `\"`
@@ -178,10 +252,10 @@ If `template.json` contains:
 { "value": "{{FOO}}" }
 ```
 
-The output will be:
+The output will be something like:
 
 ```json
-{ "value": "a\\\"b\\\\c\\n" }
+{ "value": "a\"b\\c\n" }
 ```
 
 (plus the other escaped control characters if present).
@@ -228,6 +302,12 @@ Usage:
 ./target/release/apply-env -m -f template.yaml
 ```
 
+or (from stdin):
+
+```bash
+echo '{{FOO}}' | ./target/release/apply-env -m --
+```
+
 ---
 
 ## Default value for missing variables
@@ -239,7 +319,7 @@ If you want a consistent fallback for missing vars, you can use `-n` / `--if-not
 ./target/release/apply-env -f template.yaml -n "anonymous"
 ```
 
-If `$NAME` is not set, you get:
+If the variable is not set in the active environment (process ENV or `--env-file`), you get:
 
 ```yaml
 message: "Hello anonymous!"
@@ -270,7 +350,7 @@ This is useful when you’re troubleshooting why a particular placeholder isn’
 ## Behaviour notes
 
 - Only placeholders matching `{{\s*\w+\s*}}` are processed.
-- Unknown flags cause the program to print an error and the help text, then exit with a non-zero code.
+- Unknown flags are handled by `clap` and result in an error message + non-zero exit code.
 - `-v / --version` prints the package name and version as defined by `Cargo.toml`.
 
 ---

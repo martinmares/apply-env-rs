@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -11,6 +12,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
 /// Konfigurace ekvivalentní OptionParseru v Crystal kódu.
+/// Konfigurace ekvivalentní OptionParseru v Crystal kódu.
 #[derive(Debug, Clone)]
 pub struct TemplateConfig {
     pub file_name: Option<String>,
@@ -19,6 +21,9 @@ pub struct TemplateConfig {
     pub escape: bool,
     pub default: Option<String>,
     pub debug: bool,
+    /// Volitelná mapa proměnných prostředí – pokud je Some,
+    /// používá se místo skutečného process ENV.
+    pub env_vars: Option<HashMap<String, String>>,
 }
 
 impl Default for TemplateConfig {
@@ -30,6 +35,7 @@ impl Default for TemplateConfig {
             escape: false,
             default: None,
             debug: false,
+            env_vars: None,
         }
     }
 }
@@ -162,7 +168,13 @@ where
 /// Čistá funkce pro templating - obdoba `Template#render`
 /// bez I/O (užitečné pro testy a embedování).
 pub fn render_template_str(template: &str, cfg: &TemplateConfig) -> String {
-    render_template_with_lookup(template, cfg, |name| env::var(name).ok())
+    if let Some(ref map) = cfg.env_vars {
+        // Použijeme pouze hodnoty z mapy (např. načtené z .env souboru)
+        render_template_with_lookup(template, cfg, |name| map.get(name).cloned())
+    } else {
+        // Výchozí chování: čteme z process ENV
+        render_template_with_lookup(template, cfg, |name| env::var(name).ok())
+    }
 }
 
 /// Port `Template#load_content` + `Template#rewrite?`
@@ -338,5 +350,21 @@ mod tests {
         });
 
         assert_eq!(rendered, "a\\\"b\\\\c\\n\\r\\t");
+    }
+
+    #[test]
+    fn uses_env_vars_map_instead_of_process_env() {
+        use std::collections::HashMap;
+
+        let mut map = HashMap::new();
+        map.insert("FOO".to_string(), "from_file".to_string());
+
+        let cfg = TemplateConfig {
+            env_vars: Some(map),
+            ..Default::default()
+        };
+
+        let rendered = render_template_str("x {{FOO}} y", &cfg);
+        assert_eq!(rendered, "x from_file y");
     }
 }
