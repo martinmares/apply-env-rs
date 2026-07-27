@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -40,6 +40,16 @@ impl Default for TemplateConfig {
     }
 }
 
+/// Výsledek renderování včetně placeholderů, které nebylo možné rozřešit.
+///
+/// `unresolved` obsahuje unikátní názvy proměnných a počet jejich výskytů.
+/// `BTreeMap` zajišťuje stabilní pořadí vhodné pro CLI reporty a CI logy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderOutcome {
+    pub rendered: String,
+    pub unresolved: BTreeMap<String, usize>,
+}
+
 /// Port metody `escape_special_chars`
 ///
 /// Crystal:
@@ -74,18 +84,26 @@ fn is_helm_wrapped(content: &str, start: usize, end: usize) -> bool {
     &content[start - 3..start] == "{{`" && &content[end..end + 3] == "`}}"
 }
 
-pub fn render_template_with_lookup<F>(template: &str, cfg: &TemplateConfig, mut lookup: F) -> String
+pub fn render_template_with_lookup_report<F>(
+    template: &str,
+    cfg: &TemplateConfig,
+    mut lookup: F,
+) -> RenderOutcome
 where
     F: FnMut(&str) -> Option<String>,
 {
     if template.is_empty() {
-        return String::new();
+        return RenderOutcome {
+            rendered: String::new(),
+            unresolved: BTreeMap::new(),
+        };
     }
 
     let re = Regex::new(r"(?ix)(\{\{\s*)(\w+)(\s*\}\})")
-        .expect("invalid regex for render_template_with_lookup");
+        .expect("invalid regex for render_template_with_lookup_report");
 
     let mut result = String::with_capacity(template.len());
+    let mut unresolved = BTreeMap::new();
     let mut last_end = 0usize;
 
     for (i, caps) in re.captures_iter(template).enumerate() {
@@ -150,6 +168,7 @@ where
                                 orig.yellow()
                             );
                         }
+                        *unresolved.entry(name.to_string()).or_insert(0) += 1;
                         orig.to_string()
                     }
                 }
@@ -162,18 +181,34 @@ where
 
     result.push_str(&template[last_end..]);
 
-    result
+    RenderOutcome {
+        rendered: result,
+        unresolved,
+    }
+}
+
+pub fn render_template_with_lookup<F>(template: &str, cfg: &TemplateConfig, lookup: F) -> String
+where
+    F: FnMut(&str) -> Option<String>,
+{
+    render_template_with_lookup_report(template, cfg, lookup).rendered
 }
 
 /// Čistá funkce pro templating - obdoba `Template#render`
 /// bez I/O (užitečné pro testy a embedování).
 pub fn render_template_str(template: &str, cfg: &TemplateConfig) -> String {
+    render_template_str_report(template, cfg).rendered
+}
+
+/// Stejné renderování jako `render_template_str`, navíc s reportem
+/// nerozřešených proměnných.
+pub fn render_template_str_report(template: &str, cfg: &TemplateConfig) -> RenderOutcome {
     if let Some(ref map) = cfg.env_vars {
         // Použijeme pouze hodnoty z mapy (např. načtené z .env souboru)
-        render_template_with_lookup(template, cfg, |name| map.get(name).cloned())
+        render_template_with_lookup_report(template, cfg, |name| map.get(name).cloned())
     } else {
         // Výchozí chování: čteme z process ENV
-        render_template_with_lookup(template, cfg, |name| env::var(name).ok())
+        render_template_with_lookup_report(template, cfg, |name| env::var(name).ok())
     }
 }
 
@@ -184,6 +219,14 @@ pub fn run_from_stdio(cfg: TemplateConfig) -> io::Result<()> {
     let content = load_content(&cfg)?;
     let rendered = render_template_str(&content, &cfg);
     rewrite_or_print(&rendered, &cfg)
+}
+
+/// Provede stejnou substituci jako běžný běh, ale nic nevypisuje ani
+/// nepřepisuje. Na rozdíl od historického renderování je neexistující
+/// vstupní soubor chyba, aby kontrola nemohla skončit falešným úspěchem.
+pub fn check_from_stdio(cfg: &TemplateConfig) -> io::Result<RenderOutcome> {
+    let content = load_content_strict(cfg)?;
+    Ok(render_template_str_report(&content, cfg))
 }
 
 fn load_content(cfg: &TemplateConfig) -> io::Result<String> {
@@ -200,6 +243,22 @@ fn load_content(cfg: &TemplateConfig) -> io::Result<String> {
         }
     } else {
         // knihovní použití -> stdin
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        Ok(buf)
+    }
+}
+
+fn load_content_strict(cfg: &TemplateConfig) -> io::Result<String> {
+    if let Some(ref file_name) = cfg.file_name {
+        if file_name == "-" {
+            let mut buf = String::new();
+            io::stdin().read_to_string(&mut buf)?;
+            Ok(buf)
+        } else {
+            std::fs::read_to_string(file_name)
+        }
+    } else {
         let mut buf = String::new();
         io::stdin().read_to_string(&mut buf)?;
         Ok(buf)
@@ -369,5 +428,62 @@ mod tests {
 
         let rendered = render_template_str("x {{FOO}} y", &cfg);
         assert_eq!(rendered, "x from_file y");
+    }
+
+    #[test]
+    fn report_collects_unresolved_variables_and_occurrence_counts() {
+        let cfg = TemplateConfig::default();
+
+        let outcome = render_template_with_lookup_report(
+            "{{ZED}} {{ALPHA}} {{ZED}} {{PRESENT}}",
+            &cfg,
+            |name| match name {
+                "PRESENT" => Some("resolved".to_string()),
+                _ => None,
+            },
+        );
+
+        assert_eq!(outcome.rendered, "{{ZED}} {{ALPHA}} {{ZED}} resolved");
+        assert_eq!(
+            outcome.unresolved,
+            BTreeMap::from([("ALPHA".to_string(), 1), ("ZED".to_string(), 2)])
+        );
+    }
+
+    #[test]
+    fn report_treats_default_value_as_resolved() {
+        let cfg = TemplateConfig {
+            default: Some("fallback".to_string()),
+            ..Default::default()
+        };
+
+        let outcome = render_template_with_lookup_report("{{MISSING}}", &cfg, |_name| None);
+
+        assert_eq!(outcome.rendered, "fallback");
+        assert!(outcome.unresolved.is_empty());
+    }
+
+    #[test]
+    fn report_does_not_rescan_placeholders_introduced_by_values() {
+        let cfg = TemplateConfig::default();
+
+        let outcome = render_template_with_lookup_report("{{OUTER}}", &cfg, |_name| {
+            Some("{{INNER}}".to_string())
+        });
+
+        assert_eq!(outcome.rendered, "{{INNER}}");
+        assert!(outcome.unresolved.is_empty());
+    }
+
+    #[test]
+    fn report_treats_an_empty_existing_value_as_resolved() {
+        let cfg = TemplateConfig::default();
+
+        let outcome = render_template_with_lookup_report("before{{EMPTY}}after", &cfg, |_name| {
+            Some(String::new())
+        });
+
+        assert_eq!(outcome.rendered, "beforeafter");
+        assert!(outcome.unresolved.is_empty());
     }
 }

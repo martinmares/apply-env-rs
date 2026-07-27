@@ -17,6 +17,7 @@ It’s intentionally small and predictable – essentially “just” replaces `
 - Reads from **stdin** (via `-` or `-f -`) or from a **file** (`-f / --file`)
 - Optional in-place file rewrite (`-w / --rewrite`)
 - Optional `.env` / properties-style file as the **only** source of variables (`-E / --env-file`)
+- Dry-run validation with `check` (alias `validate`) that reports unresolved variables
 - Debug output to see what’s being replaced (`-d / --debug`)
 - No errors for missing template variables by default – placeholders are left as-is (unless a default is provided)
 
@@ -57,7 +58,8 @@ cargo install --path .
 Basic synopsis:
 
 ```bash
-apply-env [arguments]
+apply-env [OPTIONS]
+apply-env check [OPTIONS]
 ```
 
 Supported options:
@@ -72,6 +74,13 @@ Supported options:
 -E FILE, --env-file=FILE        Load variables from a .env-style file instead of process ENV
 -v, --version                   Show version
 -h, --help                      Show this help
+```
+
+Supported commands:
+
+```text
+check                           Check that every template variable can be resolved
+validate                        Alias for check
 ```
 
 ### Input / output
@@ -90,6 +99,42 @@ Supported options:
   ```
 
 If a file path is given but the file does not exist, it is treated as empty.
+
+### Checking templates
+
+The `check` command performs the same variable lookup and substitution as a
+normal run, but it does not print or rewrite the rendered document. Instead, it
+reports variables that could not be resolved:
+
+```bash
+apply-env check -f template.yaml
+apply-env validate -E production.env -f template.yaml
+echo '{{FOO}} {{BAR}}' | apply-env check -f -
+```
+
+The shorter `apply-env check -` form remains supported as an alias for
+`apply-env check -f -`.
+
+Example failure:
+
+```text
+ERROR: unresolved template variables:
+  API_TOKEN (1 occurrence)
+  DATABASE_URL (2 occurrences)
+```
+
+Variable names are sorted and repeated placeholders are reported once with an
+occurrence count. An existing variable with an empty value is considered
+resolved. When `--if-not-found` is used, its fallback also counts as a resolved
+value.
+
+The command exits with status `0` when every variable is resolved and `1` when
+variables remain unresolved or the input cannot be read. Invalid command-line
+arguments use the non-zero status produced by `clap`.
+
+`check` accepts `--file`, `--env-file`, and `--if-not-found`. It does not accept
+`--rewrite`, `--helm-only`, `--escape`, or `--debug`. Unlike the normal rendering
+mode, checking a file that does not exist is an error.
 
 ---
 
