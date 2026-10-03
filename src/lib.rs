@@ -216,9 +216,28 @@ pub fn render_template_str_report(template: &str, cfg: &TemplateConfig) -> Rende
 /// používané `main` funkcí - čte ze stdin/souboru a
 /// buď vypíše, nebo přepíše soubor.
 pub fn run_from_stdio(cfg: TemplateConfig) -> io::Result<()> {
-    let content = load_content(&cfg)?;
+    run_from_stdio_with_output(cfg, None)
+}
+
+/// Render to an output file without adding a newline, or use the usual output
+/// behavior when no output path is supplied.
+pub fn run_from_stdio_with_output(cfg: TemplateConfig, output: Option<&Path>) -> io::Result<()> {
+    if output.is_some() && cfg.rewrite {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--output cannot be combined with --rewrite",
+        ));
+    }
+    let content = if output.is_some() {
+        load_content_strict(&cfg)?
+    } else {
+        load_content(&cfg)?
+    };
     let rendered = render_template_str(&content, &cfg);
-    rewrite_or_print(&rendered, &cfg)
+    match output {
+        Some(path) => std::fs::write(path, rendered),
+        None => rewrite_or_print(&rendered, &cfg),
+    }
 }
 
 /// Provede stejnou substituci jako běžný běh, ale nic nevypisuje ani

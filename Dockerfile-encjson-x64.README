@@ -1,0 +1,4 @@
+cargo zigbuild --release  --target x86_64-unknown-linux-musl
+docker build -t harbor.cetin/zis/release/apply-env -f Dockerfile-encjson-x64 .
+docker push harbor.cetin/zis/release/apply-env
+

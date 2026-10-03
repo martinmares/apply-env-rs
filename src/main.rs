@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::process;
 
-use apply_env::{TemplateConfig, check_from_stdio, run_from_stdio};
+use apply_env::{TemplateConfig, check_from_stdio, run_from_stdio_with_output};
 use clap::{CommandFactory, Parser, Subcommand};
 
 /// Apply environment variables to templates (Rust port of apply-env).
@@ -22,6 +22,15 @@ struct Cli {
     /// Specifies template file name
     #[arg(short = 'f', long = "file", value_name = "NAME", global = true)]
     file: Option<String>,
+
+    /// Write the rendered document to this file instead of stdout
+    #[arg(
+        short = 'o',
+        long = "output",
+        value_name = "FILE",
+        conflicts_with = "rewrite"
+    )]
+    output: Option<std::path::PathBuf>,
 
     /// Rewrite input file!
     #[arg(short = 'w', long = "rewrite")]
@@ -154,7 +163,7 @@ fn main() {
     };
 
     // 7) Templating (stdin / soubor podle file_name)
-    if let Err(err) = run_from_stdio(cfg) {
+    if let Err(err) = run_from_stdio_with_output(cfg, cli.output.as_deref()) {
         eprintln!("ERROR: {err}");
         process::exit(1);
     }
@@ -168,8 +177,10 @@ fn run_check(cli: &Cli) {
         process::exit(1);
     }
 
-    if cli.rewrite || cli.helm_only || cli.escape || cli.debug {
-        eprintln!("ERROR: check does not support --rewrite, --helm-only, --escape, or --debug");
+    if cli.rewrite || cli.helm_only || cli.escape || cli.debug || cli.output.is_some() {
+        eprintln!(
+            "ERROR: check does not support --rewrite, --helm-only, --escape, --debug, or --output"
+        );
         process::exit(2);
     }
 
@@ -280,6 +291,23 @@ fn load_env_file(path: &str) -> std::io::Result<HashMap<String, String>> {
 mod cli_tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn output_accepts_short_and_long_flags() {
+        for flag in ["-o", "--output"] {
+            let cli = Cli::try_parse_from(["apply-env", "-f", "input.yaml", flag, "output.yaml"])
+                .unwrap();
+            assert_eq!(cli.output, Some(std::path::PathBuf::from("output.yaml")));
+        }
+    }
+
+    #[test]
+    fn output_conflicts_with_rewrite() {
+        let error =
+            Cli::try_parse_from(["apply-env", "-f", "input.yaml", "-o", "output.yaml", "-w"])
+                .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
 
     #[test]
     fn dash_alias_maps_to_file_dash() {

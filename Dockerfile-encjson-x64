@@ -1,0 +1,3 @@
+FROM busybox:1.37
+COPY target/x86_64-unknown-linux-musl/release/apply-env /usr/local/bin/apply-env
+

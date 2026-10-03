@@ -66,6 +66,7 @@ Supported options:
 
 ```text
 -f NAME, --file=NAME            Specifies template file name
+-o FILE, --output=FILE          Write the rendered document to a file instead of stdout
 -w, --rewrite                   Rewrite input file!
 -m, --helm-only                 Make Helm template compatible!
 -e, --escape                    Escape special string chars (needed for JSON)
@@ -88,7 +89,8 @@ validate                        Alias for check
 - **No arguments** (`apply-env`):
   - Prints the help text (same as `-h`) and exits.
 - If `-f/--file` **is** specified:
-  - Without `-w`: reads from the file, writes processed content to stdout.
+  - Without `-w` or `-o`: reads from the file, writes processed content to stdout.
+  - With `-o FILE`: writes processed content to the specified file.
   - With `-w`: reads from the file and rewrites the file in-place.
 - If you want to read from **stdin**, you can use either `-` (alias for `-f -`) or explicit `-f -`:
 
@@ -99,6 +101,18 @@ validate                        Alias for check
   ```
 
 If a file path is given but the file does not exist, it is treated as empty.
+
+To write a file without shell redirection, use `-o / --output`:
+
+```bash
+apply-env -f config.pipeline.template.yaml -o config.pipeline.yaml
+```
+
+The output file is created or overwritten with the exact rendered content,
+without an extra newline. Input from `-f -` is also supported. `--output` cannot
+be combined with `--rewrite` or `check` / `validate`. With `--output`, an unreadable
+or missing input file is an error; the output is only opened after the input has
+been read and rendered. Missing output directories are not created automatically.
 
 ### Checking templates
 
@@ -133,7 +147,7 @@ variables remain unresolved or the input cannot be read. Invalid command-line
 arguments use the non-zero status produced by `clap`.
 
 `check` accepts `--file`, `--env-file`, and `--if-not-found`. It does not accept
-`--rewrite`, `--helm-only`, `--escape`, or `--debug`. Unlike the normal rendering
+`--rewrite`, `--helm-only`, `--escape`, `--debug`, or `--output`. Unlike the normal rendering
 mode, checking a file that does not exist is an error.
 
 ---
