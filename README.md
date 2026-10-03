@@ -17,6 +17,7 @@ It’s intentionally small and predictable – essentially “just” replaces `
 - Reads from **stdin** (via `-` or `-f -`) or from a **file** (`-f / --file`)
 - Optional in-place file rewrite (`-w / --rewrite`)
 - Optional `.env` / properties-style file as the **only** source of variables (`-E / --env-file`)
+- Optional case-sensitive variable prefix selection (`--prefix`, repeatable)
 - Dry-run validation with `check` (alias `validate`) that reports unresolved variables
 - Debug output to see what’s being replaced (`-d / --debug`)
 - No errors for missing template variables by default – placeholders are left as-is (unless a default is provided)
@@ -71,6 +72,7 @@ Supported options:
 -m, --helm-only                 Make Helm template compatible!
 -e, --escape                    Escape special string chars (needed for JSON)
 -n VALUE, --if-not-found=VALUE  Use this value if env var was not found
+--prefix PREFIX               Only process matching variable names (repeatable)
 -d, --debug                     Debug mode (verbose output)
 -E FILE, --env-file=FILE        Load variables from a .env-style file instead of process ENV
 -v, --version                   Show version
@@ -146,9 +148,45 @@ The command exits with status `0` when every variable is resolved and `1` when
 variables remain unresolved or the input cannot be read. Invalid command-line
 arguments use the non-zero status produced by `clap`.
 
-`check` accepts `--file`, `--env-file`, and `--if-not-found`. It does not accept
+`check` accepts `--file`, `--env-file`, `--if-not-found`, and `--prefix`. It does not accept
 `--rewrite`, `--helm-only`, `--escape`, `--debug`, or `--output`. Unlike the normal rendering
 mode, checking a file that does not exist is an error.
+
+---
+
+## Selecting variables by prefix
+
+Use `--prefix` when a document also contains placeholders owned by another tool.
+Matching is case-sensitive and uses the full variable name: `--prefix KRF_`
+replaces `{{KRF_ROOT}}` by looking up `KRF_ROOT`, without stripping the prefix.
+Repeat the option to select multiple prefixes (any matching prefix is accepted).
+Without `--prefix`, existing behavior is unchanged: all variables are processed.
+An empty CLI prefix is rejected.
+
+Excluded placeholders stay exactly as written, even if their variables exist.
+They are not looked up, reported as unresolved, given a fallback or Helm-wrapped.
+Escaping and defaults still apply to selected variables normally. The same filter
+is used for rendering, `check`/`validate`, process environment and `--env-file`.
+
+For example, a KRF pipeline template can contain:
+
+```yaml
+workdir:
+  root: "{{CI_PROJECT_DIR}}/.krf-work"
+# KRF resolves these expressions later:
+tag_template: "dev/{{ release_name }}.r{{ revision }}"
+```
+
+Check and render using the same prefix selection:
+
+```sh
+apply-env check --prefix KRF_ --prefix CI_ -f config.pipeline.template.yaml
+apply-env --prefix KRF_ --prefix CI_ -f config.pipeline.template.yaml -o config.pipeline.yaml
+```
+
+The KRF placeholders remain intact; missing selected variables cause `check` to
+exit with status 1. Configure Git authentication separately in the CI environment;
+repository URLs in the template do not need to contain access tokens.
 
 ---
 
@@ -425,3 +463,27 @@ This project is a Rust rewrite of the original Crystal [apply-env](https://githu
 ## License
 
 MIT – see [`LICENSE`](./LICENSE).
+
+## Commercial Support
+
+This software is provided under the MIT License and comes without
+warranty or free community support. The MIT License permits commercial use,
+modification, and redistribution; purchasing support is not required to use it.
+
+Commercial support is available from **[DataLite](https://datalite.cz)**, including:
+
+- technical assistance,
+- verified releases,
+- bug fixes,
+- updates,
+- deployment assistance,
+- troubleshooting,
+- long-term maintenance.
+
+Contact [DataLite](https://datalite.cz) for commercial support options.
+
+Public availability does not imply a commitment to respond to questions, fix
+reported bugs, implement feature requests, or provide regular updates. External
+pull requests may be accepted at the maintainer's discretion, but review,
+response, and acceptance are not guaranteed. Upstream write and merge access
+is reserved for the owner and explicitly authorized maintainers.

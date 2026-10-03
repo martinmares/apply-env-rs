@@ -122,3 +122,35 @@ fn check_rejects_a_missing_template_file() {
     assert!(stderr.starts_with("ERROR: failed to check template: "));
     assert!(stderr.contains("No such file or directory"));
 }
+
+#[test]
+fn prefix_check_only_reports_selected_missing_variables() {
+    let output = run_with_stdin(
+        &["check", "--prefix", "CHECK_", "-f", "-"],
+        "{{CHECK_MISSING_ALPHA}} {{ release_name }} {{revision}}",
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "ERROR: unresolved template variables:\n  CHECK_MISSING_ALPHA (1 occurrence)\n"
+    );
+}
+
+#[test]
+fn prefix_check_and_validate_accept_excluded_placeholders() {
+    for args in [
+        vec!["--prefix", "KRF_", "check", "-f", "-"],
+        vec!["validate", "--prefix", "KRF_", "--prefix", "CI_", "-f", "-"],
+    ] {
+        let output = run_with_stdin(&args, "{{ release_name }} {{revision}}");
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty());
+    }
+}
+
+#[test]
+fn empty_prefix_is_rejected() {
+    let output = run_with_stdin(&["check", "--prefix=", "-f", "-"], "{{revision}}");
+    assert_eq!(output.status.code(), Some(2));
+}

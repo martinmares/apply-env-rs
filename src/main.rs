@@ -53,6 +53,11 @@ struct Cli {
     )]
     if_not_found: Option<String>,
 
+    /// Only process variables starting with this case-sensitive prefix (repeatable)
+    #[arg(long = "prefix", value_name = "PREFIX", global = true,
+        value_parser = clap::builder::NonEmptyStringValueParser::new())]
+    prefixes: Vec<String>,
+
     /// Debug?
     #[arg(short = 'd', long = "debug")]
     debug: bool,
@@ -159,6 +164,7 @@ fn main() {
         escape: cli.escape,
         default: cli.if_not_found,
         debug: cli.debug,
+        prefixes: cli.prefixes,
         env_vars,
     };
 
@@ -198,6 +204,7 @@ fn run_check(cli: &Cli) {
     let cfg = TemplateConfig {
         file_name: cli.file.clone(),
         default: cli.if_not_found.clone(),
+        prefixes: cli.prefixes.clone(),
         env_vars,
         ..Default::default()
     };

@@ -21,6 +21,8 @@ pub struct TemplateConfig {
     pub escape: bool,
     pub default: Option<String>,
     pub debug: bool,
+    /// Case-sensitive variable prefixes; empty selects all placeholders.
+    pub prefixes: Vec<String>,
     /// Volitelná mapa proměnných prostředí - pokud je Some,
     /// používá se místo skutečného process ENV.
     pub env_vars: Option<HashMap<String, String>>,
@@ -35,6 +37,7 @@ impl Default for TemplateConfig {
             escape: false,
             default: None,
             debug: false,
+            prefixes: Vec::new(),
             env_vars: None,
         }
     }
@@ -115,6 +118,13 @@ where
 
         let orig = m.as_str();
         let name = caps.get(2).unwrap().as_str();
+
+        // Ignore other template languages before lookup, defaults or Helm wrapping.
+        if !cfg.prefixes.is_empty() && !cfg.prefixes.iter().any(|prefix| name.starts_with(prefix)) {
+            result.push_str(orig);
+            last_end = end;
+            continue;
+        }
 
         let replacement = if cfg.helm_only {
             if is_helm_wrapped(template, start, end) {
@@ -504,5 +514,84 @@ mod tests {
 
         assert_eq!(outcome.rendered, "beforeafter");
         assert!(outcome.unresolved.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod prefix_tests {
+    use super::*;
+
+    #[test]
+    fn excluded_placeholders_are_preserved_without_lookup_or_missing_reports() {
+        let cfg = TemplateConfig {
+            prefixes: vec!["KRF_".into()],
+            ..Default::default()
+        };
+        let mut looked_up = Vec::new();
+        let outcome = render_template_with_lookup_report(
+            "{{KRF_URL}} {{ release_name }} {{revision}} {{krf_lower}} {{KRF_MISSING}} {{KRF_MISSING}}",
+            &cfg,
+            |name| {
+                looked_up.push(name.to_string());
+                (name == "KRF_URL").then(|| "git.example".into())
+            },
+        );
+        assert_eq!(looked_up, ["KRF_URL", "KRF_MISSING", "KRF_MISSING"]);
+        assert_eq!(
+            outcome.rendered,
+            "git.example {{ release_name }} {{revision}} {{krf_lower}} {{KRF_MISSING}} {{KRF_MISSING}}"
+        );
+        assert_eq!(
+            outcome.unresolved,
+            BTreeMap::from([("KRF_MISSING".into(), 2)])
+        );
+    }
+
+    #[test]
+    fn multiple_prefixes_select_union_and_use_full_variable_names() {
+        let cfg = TemplateConfig {
+            prefixes: vec!["KRF_".into(), "CI_".into()],
+            ..Default::default()
+        };
+        let outcome = render_template_with_lookup_report(
+            "{{KRF_ROOT}}/{{CI_PROJECT_DIR}}/{{OTHER}}",
+            &cfg,
+            |name| Some(name.to_string()),
+        );
+        assert_eq!(outcome.rendered, "KRF_ROOT/CI_PROJECT_DIR/{{OTHER}}");
+        assert!(outcome.unresolved.is_empty());
+    }
+
+    #[test]
+    fn default_and_escape_only_affect_selected_variables() {
+        let cfg = TemplateConfig {
+            prefixes: vec!["KRF_".into()],
+            default: Some("fallback".into()),
+            escape: true,
+            ..Default::default()
+        };
+        let outcome = render_template_with_lookup_report(
+            "{{KRF_VALUE}} {{KRF_MISSING}} {{ revision }}",
+            &cfg,
+            |name| (name == "KRF_VALUE").then(|| "a\nb".into()),
+        );
+        assert_eq!(outcome.rendered, "a\\nb fallback {{ revision }}");
+        assert!(outcome.unresolved.is_empty());
+    }
+
+    #[test]
+    fn helm_wrapping_only_affects_selected_variables_and_remains_idempotent() {
+        let cfg = TemplateConfig {
+            prefixes: vec!["KRF_".into()],
+            helm_only: true,
+            ..Default::default()
+        };
+        let template = "{{KRF_ROOT}} {{ release_name }} {{`{{KRF_ALREADY}}`}}";
+        let once = render_template_str(template, &cfg);
+        assert_eq!(
+            once,
+            "{{`{{KRF_ROOT}}`}} {{ release_name }} {{`{{KRF_ALREADY}}`}}"
+        );
+        assert_eq!(render_template_str(&once, &cfg), once);
     }
 }

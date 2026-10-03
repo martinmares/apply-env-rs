@@ -145,3 +145,40 @@ fn incompatible_output_modes_are_rejected_without_writing() {
         assert_eq!(fs::read(fixture.0.join("input.yaml")).unwrap(), b"original");
     }
 }
+
+#[test]
+fn prefix_render_uses_env_file_and_preserves_krf_templates_in_output() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("vars.env"),
+        "KRF_ROOT=/workspace\nCI_PROJECT_DIR=/build\nrelease_name=must-not-replace\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.0.join("input.yaml"),
+        "{{KRF_ROOT}} {{CI_PROJECT_DIR}} {{ release_name }} {{revision}}",
+    )
+    .unwrap();
+    let output = fixture
+        .command()
+        .args([
+            "--prefix",
+            "KRF_",
+            "--prefix",
+            "CI_",
+            "-E",
+            "vars.env",
+            "-f",
+            "input.yaml",
+            "-o",
+            "output.yaml",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("output.yaml")).unwrap(),
+        "/workspace /build {{ release_name }} {{revision}}"
+    );
+}
