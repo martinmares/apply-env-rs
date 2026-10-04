@@ -61,6 +61,7 @@ Basic synopsis:
 ```bash
 apply-env [OPTIONS]
 apply-env check [OPTIONS]
+apply-env examples [--color auto|always|never]
 ```
 
 Supported options:
@@ -84,7 +85,23 @@ Supported commands:
 ```text
 check                           Check that every template variable can be resolved
 validate                        Alias for check
+examples                        Show practical usage examples (alias: example)
 ```
+
+### Usage examples in the terminal
+
+```bash
+apply-env examples
+apply-env examples --color never
+apply-env example --color always
+```
+
+The guide groups common workflows and shows shell commands alongside template
+and `.env` file contents. It covers stdin, file output, in-place rewriting,
+fallback values, prefix selection, validation, JSON escaping and Helm wrapping.
+Colors are enabled automatically in a terminal, disabled for redirected output,
+and respect `NO_COLOR` and `TERM=dumb`. `--color` overrides automatic detection.
+The command only prints the guide; it does not read or modify template files.
 
 ### Input / output
 
@@ -464,26 +481,10 @@ This project is a Rust rewrite of the original Crystal [apply-env](https://githu
 
 MIT – see [`LICENSE`](./LICENSE).
 
-## Commercial Support
+This utility is fully open source and provided "AS IS", without warranty or a
+commitment to provide support, fixes or updates. Commercial use, modification
+and redistribution are permitted under the MIT License.
 
-This software is provided under the MIT License and comes without
-warranty or free community support. The MIT License permits commercial use,
-modification, and redistribution; purchasing support is not required to use it.
-
-Commercial support is available from **[DataLite](https://datalite.cz)**, including:
-
-- technical assistance,
-- verified releases,
-- bug fixes,
-- updates,
-- deployment assistance,
-- troubleshooting,
-- long-term maintenance.
-
-Contact [DataLite](https://datalite.cz) for commercial support options.
-
-Public availability does not imply a commitment to respond to questions, fix
-reported bugs, implement feature requests, or provide regular updates. External
-pull requests may be accepted at the maintainer's discretion, but review,
-response, and acceptance are not guaranteed. Upstream write and merge access
-is reserved for the owner and explicitly authorized maintainers.
+External pull requests are reviewed and accepted at the maintainer's discretion.
+Upstream write and merge access is reserved for the owner and explicitly
+authorized maintainers.

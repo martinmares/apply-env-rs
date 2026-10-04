@@ -1,3 +1,5 @@
+mod examples;
+
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -69,6 +71,13 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Show practical usage examples with template and environment files
+    #[command(visible_alias = "example")]
+    Examples {
+        /// Colorize output (auto detects terminals and respects NO_COLOR)
+        #[arg(long, value_enum, default_value_t = examples::ColorMode::Auto)]
+        color: examples::ColorMode,
+    },
     /// Check that all template variables can be resolved without writing output
     #[command(visible_alias = "validate")]
     Check,
@@ -130,6 +139,18 @@ fn main() {
 
     // 3) Necháme clap zparsovat argumenty (včetně -h / -v)
     let cli = Cli::parse_from(args_for_clap);
+
+    if let Some(Commands::Examples { color }) = cli.command {
+        let stdout = std::io::stdout();
+        let use_color = examples::use_color(color, &stdout);
+        if let Err(err) = examples::write_examples(&mut stdout.lock(), use_color) {
+            if err.kind() != std::io::ErrorKind::BrokenPipe {
+                eprintln!("ERROR: failed to write examples: {err}");
+                process::exit(1);
+            }
+        }
+        return;
+    }
 
     if matches!(cli.command, Some(Commands::Check)) {
         run_check(&cli);
